@@ -26,8 +26,8 @@ import java.util.Arrays;
 
 import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.InvalidNumberEncodingException;
+import org.apache.avro.SystemLimitException;
 import org.apache.avro.util.Utf8;
-import org.slf4j.LoggerFactory;
 
 /**
  * An {@link Decoder} for binary-format data.
@@ -56,10 +56,7 @@ public class BinaryDecoder extends Decoder {
    * an array. Attempts to allocate larger arrays may result in OutOfMemoryError:
    * Requested array size exceeds VM limit
    */
-  static final long MAX_ARRAY_SIZE = (long) Integer.MAX_VALUE - 8L;
-
-  private static final String MAX_BYTES_LENGTH_PROPERTY = "org.apache.avro.limits.bytes.maxLength";
-  private final int maxBytesLength;
+  private long collectionCount = 0L;
 
   private ByteSource source = null;
   // we keep the buffer and its state variables in this class and not in a
@@ -99,17 +96,6 @@ public class BinaryDecoder extends Decoder {
   /** protected constructor for child classes */
   protected BinaryDecoder() {
     super();
-    String o = System.getProperty(MAX_BYTES_LENGTH_PROPERTY);
-    int i = Integer.MAX_VALUE;
-    if (o != null) {
-      try {
-        i = Integer.parseUnsignedInt(o);
-      } catch (NumberFormatException nfe) {
-        LoggerFactory.getLogger(BinaryDecoder.class)
-            .warn("Could not parse property " + MAX_BYTES_LENGTH_PROPERTY + ": " + o, nfe);
-      }
-    }
-    maxBytesLength = i;
   }
 
   BinaryDecoder(InputStream in, int bufferSize) {
@@ -300,17 +286,11 @@ public class BinaryDecoder extends Decoder {
 
   @Override
   public Utf8 readString(Utf8 old) throws IOException {
-    long length = readLong();
-    if (length > MAX_ARRAY_SIZE) {
-      throw new UnsupportedOperationException("Cannot read strings longer than " + MAX_ARRAY_SIZE + " bytes");
-    }
-    if (length < 0L) {
-      throw new AvroRuntimeException("Malformed data. Length is negative: " + length);
-    }
+    int length = SystemLimitException.checkMaxStringLength(readLong());
     Utf8 result = (old != null ? old : new Utf8());
-    result.setByteLength((int) length);
-    if (0L != length) {
-      doReadBytes(result.getBytes(), 0, (int) length);
+    result.setByteLength(length);
+    if (0 != length) {
+      doReadBytes(result.getBytes(), 0, length);
     }
     return result;
   }
@@ -329,25 +309,16 @@ public class BinaryDecoder extends Decoder {
 
   @Override
   public ByteBuffer readBytes(ByteBuffer old) throws IOException {
-    int length = readInt();
-    if (length > MAX_ARRAY_SIZE) {
-      throw new UnsupportedOperationException("Cannot read arrays longer than " + MAX_ARRAY_SIZE + " bytes");
-    }
-    if (length > maxBytesLength) {
-      throw new AvroRuntimeException("Bytes length " + length + " exceeds maximum allowed");
-    }
-    if (length < 0L) {
-      throw new AvroRuntimeException("Malformed data. Length is negative: " + length);
-    }
+    int length = SystemLimitException.checkMaxBytesLength(readLong());
     final ByteBuffer result;
     if (old != null && length <= old.capacity()) {
       result = old;
       ((Buffer) result).clear();
     } else {
-      result = ByteBuffer.allocate(length);
+      result = ByteBuffer.allocate((int) length);
     }
-    doReadBytes(result.array(), result.position(), length);
-    ((Buffer) result).limit(length);
+    doReadBytes(result.array(), result.position(), (int) length);
+    ((Buffer) result).limit((int) length);
     return result;
   }
 
@@ -460,12 +431,15 @@ public class BinaryDecoder extends Decoder {
 
   @Override
   public long readArrayStart() throws IOException {
-    return doReadItemCount();
+    collectionCount = SystemLimitException.checkMaxCollectionLength(0L, doReadItemCount());
+    return collectionCount;
   }
 
   @Override
   public long arrayNext() throws IOException {
-    return doReadItemCount();
+    long length = doReadItemCount();
+    collectionCount = SystemLimitException.checkMaxCollectionLength(collectionCount, length);
+    return length;
   }
 
   @Override
@@ -475,12 +449,15 @@ public class BinaryDecoder extends Decoder {
 
   @Override
   public long readMapStart() throws IOException {
-    return doReadItemCount();
+    collectionCount = SystemLimitException.checkMaxCollectionLength(0L, doReadItemCount());
+    return collectionCount;
   }
 
   @Override
   public long mapNext() throws IOException {
-    return doReadItemCount();
+    long length = doReadItemCount();
+    collectionCount = SystemLimitException.checkMaxCollectionLength(collectionCount, length);
+    return length;
   }
 
   @Override

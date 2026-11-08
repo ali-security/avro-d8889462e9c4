@@ -24,6 +24,7 @@ import java.nio.Buffer;
 import java.nio.ByteBuffer;
 
 import org.apache.avro.InvalidNumberEncodingException;
+import org.apache.avro.SystemLimitException;
 import org.apache.avro.util.ByteBufferInputStream;
 
 /**
@@ -156,8 +157,8 @@ class DirectBinaryDecoder extends BinaryDecoder {
 
   @Override
   public ByteBuffer readBytes(ByteBuffer old) throws IOException {
-    int length = readInt();
-    return byteReader.read(old, length);
+    long length = readLong();
+    return byteReader.read(old, SystemLimitException.checkMaxBytesLength(length));
   }
 
   @Override
