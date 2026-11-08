@@ -51,6 +51,7 @@ import org.apache.avro.io.FastReaderBuilder.RecordReader.Stage;
 import org.apache.avro.io.parsing.ResolvingGrammarGenerator;
 import org.apache.avro.reflect.ReflectionUtil;
 import org.apache.avro.specific.SpecificData;
+import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.avro.util.Utf8;
 import org.apache.avro.util.WeakIdentityHashMap;
@@ -447,9 +448,26 @@ public class FastReaderBuilder {
 
   private Optional<Class<?>> findClass(String clazz) {
     try {
-      return Optional.of(data.getClassLoader().loadClass(clazz));
+      Class<?> loaded = data.getClassLoader().loadClass(clazz);
+      checkSecurity(loaded);
+      return Optional.of(loaded);
     } catch (ReflectiveOperationException e) {
       return Optional.empty();
+    }
+  }
+
+  /**
+   * Rejects a class named by a schema's java-class or java-key-class property
+   * when it is listed in {@link SpecificDatumReader#DENY_LIST}, either by its
+   * name or by one of its packages.
+   */
+  private static void checkSecurity(Class<?> clazz) {
+    String className = clazz.getName();
+    for (String untrusted : SpecificDatumReader.DENY_LIST) {
+      if (className.equals(untrusted) || className.startsWith(untrusted + ".")) {
+        throw new SecurityException(
+            "Forbidden " + clazz + "! This class is not trusted to be included in Avro schema using java-class.");
+      }
     }
   }
 
