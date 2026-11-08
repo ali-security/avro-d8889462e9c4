@@ -19,10 +19,21 @@ set -e
 
 case "$TRAVIS_OS_NAME" in
 "linux")
-    # Workaround for Yetus. For now, Yetus assumes the directory in which Dockerfile is placed is the docker context.
-    # So the Dockerfile should be here to refer to other subdirectories than share/docker from inside the Dockerfile.
-    cp share/docker/Dockerfile .
-    /tmp/apache-yetus-0.10.0/bin/test-patch --plugins=buildtest --java-home=/usr/local/openjdk-"${JAVA}" --user-plugins=share/precommit/ --run-tests --empty-patch --docker --dockerfile=Dockerfile --dirty-workspace
+    # Seal: run the Java part of `./build.sh test` (lang/java/build.sh test) on the VM
+    # instead of the Yetus/Docker multi-language image, which no longer builds.
+    # Spotless/checkstyle are lint gates, not tests.
+    export JAVA_HOME="/usr/lib/jvm/java-${JAVA}-openjdk-amd64"
+    export PATH="/tmp/apache-maven-3.9.4/bin:$JAVA_HOME/bin:$PATH"
+    export MAVEN_OPTS="-Xmx2g"
+    java -version
+    mvn -version
+    MVN_FLAGS="-B -ntp -Dspotless.check.skip=true -Dcheckstyle.skip=true"
+    cd lang/java
+    mvn $MVN_FLAGS test
+    python3 ../../.travis/test-report.py "Java ${JAVA} default profile"
+    # Test the modules that depend on hadoop using Hadoop 2
+    mvn $MVN_FLAGS test -Phadoop2
+    python3 ../../.travis/test-report.py "Java ${JAVA} hadoop2 profile"
     ;;
 "windows")
     ./lang/csharp/build.sh test

@@ -19,20 +19,31 @@ set -e
 
 case "$TRAVIS_OS_NAME" in
 "linux")
+    # Seal: the upstream Yetus/Docker image (share/docker/Dockerfile) no longer builds
+    # (stretch/bullseye apt archives 404), so the Java suite runs directly on the VM.
     sudo apt-get -q update
-    sudo apt-get -q install --no-install-recommends -y curl git gnupg-agent locales pinentry-curses pkg-config rsync software-properties-common
+    # the minimized Travis image lacks man1, which breaks the JDK postinst alternatives
+    sudo mkdir -p /usr/share/man/man1
+    sudo apt-get -q install --no-install-recommends -y curl git locales python3 "openjdk-${JAVA}-jdk-headless"
     sudo apt-get -q clean
     sudo rm -rf /var/lib/apt/lists/*
 
-    # Only Yetus 0.9.0+ supports `ADD` and `COPY` commands in Dockerfile
-    curl -L https://archive.apache.org/dist/yetus/0.10.0/apache-yetus-0.10.0-bin.tar.gz | tar xvz -C /tmp/
-    # A dirty workaround to disable the Yetus robot for TravisCI,
-    # since it'll cancel the changes that .travis/script.sh will do,
-    # even if the `--dirty-workspace` option is specified.
-    rm /tmp/apache-yetus-0.10.0/lib/precommit/robots.d/travisci.sh
+    curl -sSL https://archive.apache.org/dist/maven/maven-3/3.9.4/binaries/apache-maven-3.9.4-bin.tar.gz | tar xz -C /tmp/
     ;;
 "windows")
     choco install dotnetcore-sdk --version 3.1.101
+    # Seal: register nuget.org explicitly; the SDK's first-run user NuGet.Config
+    # is sometimes not created before restore, leaving only the VS offline feed.
+    nuget_dir="$(cygpath -u "$APPDATA")/NuGet"
+    mkdir -p "$nuget_dir"
+    cat > "$nuget_dir/NuGet.Config" <<'NUGET'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+  </packageSources>
+</configuration>
+NUGET
     ;;
 *)
     echo "Invalid PLATFORM"
